@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TXT 翻页阅读器</title>
+<style>
+  :root{
+    --bg:#f5efe2; --panel:#fffaf0; --text:#3b3226; --line:#e2d8c3;
+    --accent:#8a6d3b; --btn:#efe6d2; --btn-hover:#e5d8bc;
+  }
+  body.theme-green{ --bg:#c7edcc; --panel:#d8f3dc; --text:#1e3524; --line:#a8d5ac; --accent:#2e6b3a; --btn:#b7dfbd; --btn-hover:#a3d3aa; }
+  body.theme-dark { --bg:#17181c; --panel:#1f2126; --text:#c9cdd4; --line:#33363d; --accent:#d4a24a; --btn:#2a2d33; --btn-hover:#363a41; }
+
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html,body{ height:100%; }
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    display:flex; flex-direction:column; overflow:hidden;
+    transition:background .3s,color .3s;
+  }
+
+  header{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    padding:10px 16px; background:var(--panel);
+    border-bottom:1px solid var(--line);
+  }
+  header h1{ font-size:16px; font-weight:700; margin-right:6px; white-space:nowrap; }
+  header .filename{
+    font-size:13px; opacity:.75; max-width:220px; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap;
+  }
+  .spacer{ flex:1; }
+  .group{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  button, select, label.btn{
+    background:var(--btn); color:var(--text); border:1px solid var(--line);
+    border-radius:6px; padding:5px 10px; font-size:13px; cursor:pointer;
+    user-select:none;
+  }
+  button:hover, select:hover, label.btn:hover{ background:var(--btn-hover); }
+  button:disabled{ opacity:.4; cursor:default; }
+  .sep{ width:1px; height:20px; background:var(--line); margin:0 4px; }
+
+  main{ flex:1; position:relative; overflow:hidden; perspective:1800px; }
+
+  /* 翻页舞台 */
+  #stage{ position:absolute; inset:0; display:flex; justify-content:center; align-items:stretch; }
+  #page{
+    width:min(760px, 100%); height:100%;
+    background:var(--panel); border-left:1px solid var(--line); border-right:1px solid var(--line);
+    padding:34px 40px; overflow:hidden;
+    font-family:Georgia,"Times New Roman","Noto Serif SC","Songti SC","SimSun",serif;
+    white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere;
+    box-shadow:0 0 24px rgba(0,0,0,.06);
+  }
+  body.scroll-mode #page{ overflow-y:auto; column-width:auto; }
+
+  /* 翻页动画（JS 添加类触发） */
+  @keyframes flipOutLeft { to{ transform:rotateY(-18deg) translateX(-30px); opacity:0; } }
+  @keyframes flipOutRight{ to{ transform:rotateY(18deg) translateX(30px);  opacity:0; } }
+  @keyframes slideInRight{ from{ transform:rotateY(14deg) translateX(40px);  opacity:0; } }
+  @keyframes slideInLeft { from{ transform:rotateY(-14deg) translateX(-40px); opacity:0; } }
+  #page.out-next { animation:flipOutLeft .22s ease-in forwards; }
+  #page.out-prev { animation:flipOutRight .22s ease-in forwards; }
+  #page.in-prev  { animation:slideInLeft .22s ease-out backwards; }
+  #page.in-next  { animation:slideInRight .22s ease-out backwards; }
+
+  /* 左右点击热区（鼠标） */
+  .zone{ position:absolute; top:0; bottom:0; width:12%; cursor:pointer; z-index:5; }
+  .zone.left{ left:0; } .zone.right{ right:0; }
+  .zone:hover::after{
+    content:""; position:absolute; top:50%; transform:translateY(-50%);
+    width:34px; height:34px; border-radius:50%;
+    background:rgba(128,128,128,.12);
+  }
+  .zone.left::after{ left:12px;
+    clip-path:polygon(60% 25%,40% 50%,60% 75%); background:var(--accent); opacity:.35; }
+  .zone.right::after{ right:12px;
+    clip-path:polygon(40% 25%,60% 50%,40% 75%); background:var(--accent); opacity:.35; }
+
+  footer{
+    display:flex; align-items:center; gap:12px;
+    padding:8px 16px; background:var(--panel); border-top:1px solid var(--line);
+    font-size:13px;
+  }
+  #pageInfo{ white-space:nowrap; opacity:.85; }
+  #slider{ flex:1; accent-color:var(--accent); cursor:pointer; }
+  #progressText{ white-space:nowrap; opacity:.85; }
+
+  /* 空态 / 拖放遮罩 */
+  #empty{
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:14px; z-index:10;
+    background:var(--bg); text-align:center; padding:20px;
+  }
+  #empty .big{ font-size:44px; }
+  #empty p{ opacity:.7; font-size:14px; line-height:1.9; }
+  #dropMask{
+    position:absolute; inset:0; z-index:20; display:none;
+    align-items:center; justify-content:center;
+    background:rgba(0,0,0,.35); color:#fff; font-size:22px;
+    border:3px dashed rgba(255,255,255,.7);
+  }
+  body.dragover #dropMask{ display:flex; }
+
+  #measure{
+    position:absolute; left:-99999px; top:0;
+    background:transparent; box-shadow:none; border:none;
+  }
+  #toast{
+    position:fixed; left:50%; bottom:70px; transform:translateX(-50%);
+    background:var(--text); color:var(--bg); padding:8px 16px; border-radius:8px;
+    font-size:13px; opacity:0; pointer-events:none; transition:opacity .3s; z-index:30;
+  }
+  #toast.show{ opacity:.92; }
+
+  /* ---------- 书签面板 ---------- */
+  #bmPanel{
+    position:absolute; top:0; right:0; bottom:0; width:320px; z-index:15;
+    background:var(--panel); border-left:1px solid var(--line);
+    display:flex; flex-direction:column;
+    transform:translateX(100%); transition:transform .25s ease;
+    box-shadow:-6px 0 18px rgba(0,0,0,.10);
+  }
+  body.bm-open #bmPanel{ transform:none; }
+  .bm-head{
+    display:flex; align-items:center; gap:8px;
+    padding:10px 12px; border-bottom:1px solid var(--line); font-weight:700; font-size:14px;
+  }
+  #bmAddRow{ display:flex; gap:6px; padding:10px 12px; border-bottom:1px solid var(--line); }
+  #bmLabel{
+    flex:1; min-width:0; background:var(--bg); color:var(--text);
+    border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:13px;
+  }
+  #bmList{ flex:1; overflow-y:auto; padding:8px 10px 16px; }
+  #bmList button{ font-size:12px; padding:4px 8px; }
+  .bm-sec{
+    font-size:12px; opacity:.6; margin:10px 2px 6px;
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+  }
+  .bm-item{
+    padding:8px 10px; border:1px solid var(--line); border-radius:8px;
+    margin-bottom:8px; cursor:pointer; background:var(--bg);
+  }
+  .bm-item:hover{ border-color:var(--accent); }
+  .bm-item.active{ border-color:var(--accent); box-shadow:inset 3px 0 0 var(--accent); }
+  .bm-item .bm-name{ font-size:13px; font-weight:600; margin-bottom:2px; word-break:break-all; }
+  .bm-item .bm-snippet{ font-size:12px; opacity:.65; line-height:1.5; word-break:break-all; }
+  .bm-item .bm-meta{ font-size:11px; opacity:.55; margin-top:5px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .bm-acts{ margin-left:auto; display:flex; gap:4px; }
+  .bm-empty{ font-size:13px; opacity:.6; text-align:center; padding:24px 6px; line-height:1.9; }
+  #page mark.bm{ background:rgba(230,180,60,.45); color:inherit; border-radius:2px; }
+
+  @media (max-width:640px){
+    #page{ padding:20px 18px; border:none; }
+    .zone{ width:100%; }
+    .zone::after{ display:none; }
+    header h1{ display:none; }
+    #bmPanel{ width:100%; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📖 TXT 翻页阅读器</h1>
+  <span class="filename" id="fileName">未打开文件</span>
+  <span class="spacer"></span>
+  <div class="group">
+    <label class="btn" for="fileInput">打开文件</label>
+    <input type="file" id="fileInput" accept=".txt,.md,.log,text/plain" hidden>
+
+    <span class="sep"></span>
+    <button id="fontMinus" title="缩小字号">A−</button>
+    <button id="fontPlus" title="放大字号">A＋</button>
+    <select id="lineHeight" title="行距">
+      <option value="1.5">行距 1.5</option>
+      <option value="1.8" selected>行距 1.8</option>
+      <option value="2.2">行距 2.2</option>
+    </select>
+
+    <span class="sep"></span>
+    <button data-theme="paper" title="米黄">📄</button>
+    <button data-theme="green" title="护眼绿">🌿</button>
+    <button data-theme="dark"  title="夜间">🌙</button>
+
+    <span class="sep"></span>
+    <button id="bmBtn" title="书签（M 打开 / 关闭）">🔖 书签<span id="bmCount"></span></button>
+    <button id="modeBtn" title="切换滚动 / 翻页模式">滚动模式</button>
+    <button id="prevBtn" title="上一页（←）">◀ 上一页</button>
+    <button id="nextBtn" title="下一页（→）">下一页 ▶</button>
+  </div>
+</header>
+
+<main>
+  <div id="stage">
+    <div id="page"></div>
+  </div>
+  <div class="zone left"  id="zoneL" title="上一页"></div>
+  <div class="zone right" id="zoneR" title="下一页"></div>
+
+  <div id="empty">
+    <div class="big">📚</div>
+    <p>点击左上角「打开文件」，或直接把 .txt 文件拖进来<br>
+       翻页：← → 方向键 / 空格 / PageUp·PageDown / 点击页面两侧 / 手机左右滑动<br>
+       书签：B 添加书签 · M 开关书签面板 · J / K 跳下一个 / 上一个书签</p>
+    <label class="btn" for="fileInput2" style="padding:10px 24px;font-size:15px;">选择 TXT 文件</label>
+    <input type="file" id="fileInput2" accept=".txt,.md,.log,text/plain" hidden>
+  </div>
+  <div id="dropMask">松开以打开文件</div>
+
+  <aside id="bmPanel">
+    <div class="bm-head"><span>🔖 书签</span><span class="spacer"></span>
+      <button id="bmClose" title="关闭（M）">✕</button></div>
+    <div id="bmAddRow">
+      <input type="text" id="bmLabel" maxlength="40" placeholder="书签名称（可留空）">
+      <button id="bmAdd">添加</button>
+    </div>
+    <div id="bmList"></div>
+  </aside>
+</main>
+
+<footer>
+  <span id="pageInfo">— / —</span>
+  <input type="range" id="slider" min="1" max="1" value="1" step="1">
+  <span id="progressText">0%</span>
+</footer>
+
+<div id="toast"></div>
+<script>
+"use strict";
+
+const $ = id => document.getElementById(id);
+const pageEl = $("page");
+const emptyEl = $("empty");
+
+/* ---------- 状态 ---------- */
+const state = {
+  text: "",
+  fileName: "",
+  chunks: [],          // 翻页模式下的每页文本
+  fontSize: 18,
+  lineHeight: 1.8,
+  theme: "paper",
+  mode: "page",        // page | scroll
+  page: 0,             // 0-based
+  maxChunk: 500000,    // 最大支持字符数
+  bookmarks: [],       // 当前文件的书签（不含自动位置）
+  fileKey: "",         // 当前文件的存储键前缀
+};
+
+/* ---------- 分页核心：按容器实际可容纳高度切分文本 ---------- */
+function measureEl() {
+  // 克隆正文节点，保证字体、内边距等样式完全一致
+  const m = pageEl.cloneNode(false);
+  m.removeAttribute("id");
+  m.classList.remove("out-next", "out-prev", "in-next", "in-prev");
+  m.textContent = "";
+  m.style.position = "absolute";
+  m.style.left = "-99999px";
+  m.style.top = "0";
+  m.style.width = pageEl.clientWidth + "px";
+  m.style.height = pageEl.clientHeight + "px";
+  m.style.overflow = "hidden";
+  m.style.background = "transparent";
+  m.style.boxShadow = "none";
+  m.style.border = "none";
+  return m;
+}
+
+function chunkText(text, container, targetHeight, lineHeightPx, maxChunk) {
+  if (text.length > maxChunk) text = text.slice(0, maxChunk);
+  const chunks = [];
+  const style = getComputedStyle(container);
+  const padTop = parseFloat(style.paddingTop);
+  const padBottom = parseFloat(style.paddingBottom);
+  const contentH = container.clientHeight - padTop - padBottom;
+  const target = Math.max(contentH, lineHeightPx * 3);
+  const est = Math.max(32, Math.floor(target / lineHeightPx) * 20); // 粗略每页字符数
+
+  container.style.height = "auto";
+  container.style.overflow = "visible";
+
+  let pos = 0, guard = 0, prevFit = 0;
+  const MAX_PAGES = 50000;
+  while (pos < text.length && guard++ < MAX_PAGES) {
+    const remain = text.length - pos;
+    if (remain <= target / lineHeightPx) { chunks.push(text.slice(pos)); break; } // 剩余不足一页，直接收尾
+
+    // 以「上一页实际装入的字符数」为下界做指数扩张 + 二分，避免每次从头二分
+    let low = prevFit >= 1 ? Math.min(prevFit, remain) : 1;
+    container.textContent = text.slice(pos, pos + low);
+    if (container.scrollHeight > target) {
+      low = 1;
+      container.textContent = text.slice(pos, pos + 1);
+    }
+    let high = low;
+    while (container.scrollHeight <= target && high < remain) {
+      low = high;
+      high = Math.min(remain, Math.max(high * 2, est));
+      container.textContent = text.slice(pos, pos + high);
+    }
+    while (low < high) {
+      const mid = (low + high + 1) >> 1;
+      container.textContent = text.slice(pos, pos + mid);
+      if (container.scrollHeight <= target) low = mid; else high = mid - 1;
+    }
+    if (low < 1) low = 1;
+    prevFit = low;
+    chunks.push(text.slice(pos, pos + low));
+    pos += low;
+  }
+  container.textContent = "";
+  return chunks;
+}
+
+/* ---------- 加载文件 ---------- */
+function decodeText(buf) {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buf);
+  } catch {
+    try { return new TextDecoder("gbk").decode(buf); }
+    catch { return new TextDecoder("utf-8").decode(buf); }
+  }
+}
+
+function openFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let text = decodeText(reader.result);
+    let truncated = false;
+    if (text.length > state.maxChunk) { text = text.slice(0, state.maxChunk); truncated = true; }
+    state.text = text;
+    state.fileName = file.name;
+    state.fileKey = hash(file.name + ":" + state.text.length);
+    $("fileName").textContent = file.name;
+    emptyEl.style.display = "none";
+    loadBookmarks();
+    rebuild(false);
+    // 尝试恢复上次阅读位置（用「上次阅读位置」书签记录）
+    const auto = bookmarksStore().auto;
+    if (auto && Number.isFinite(auto.offset)) {
+      gotoBookmark("auto", false);
+      toast("已回到上次阅读位置：第 " + (auto.page + 1) + " 页");
+    } else if (state.bookmarks.length) {
+      toast("已载入 " + state.bookmarks.length + " 个书签（按文件名＋内容长度匹配）");
+    }
+    if (truncated) toast("文件过大，仅加载前 " + state.maxChunk + " 字符");
+    savePrefs();
+  };
+  reader.readAsArrayBuffer(file);
+}
+function hash(s){ let h=0; for(let i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))|0; } return (h>>>0).toString(36); }
+
+/* ---------- 重建分页 ---------- */
+function rebuild(keepPosition, ratioOverride) {
+  if (!state.text) return;
+  const oldTotal = state.chunks.length || 1;
+  const ratio = ratioOverride !== null && ratioOverride !== undefined
+    ? ratioOverride
+    : state.page / oldTotal;
+
+  const lineH = state.fontSize * state.lineHeight;
+  const m = measureEl();
+  m.style.fontSize = state.fontSize + "px";
+  m.style.lineHeight = state.lineHeight;
+  document.body.appendChild(m);
+  state.chunks = chunkText(state.text, m, 0, lineH, state.maxChunk);
+  document.body.removeChild(m);
+
+  const slider = $("slider");
+  slider.max = Math.max(1, state.chunks.length);
+  const page = keepPosition ? Math.min(state.page, state.chunks.length - 1)
+                            : Math.min(Math.round(ratio * (state.chunks.length - 1)), state.chunks.length - 1);
+  goto(Math.max(0, page), false);
+  savePrefs();
+}
+
+/* ---------- 渲染当前页 ---------- */
+function render() {
+  pageEl.style.fontSize = state.fontSize + "px";
+  pageEl.style.lineHeight = state.lineHeight;
+
+  if (state.mode === "page") {
+    pageEl.textContent = state.chunks[state.page] || "";
+    const total = state.chunks.length || 1;
+    $("pageInfo").textContent = (state.page + 1) + " / " + total + " 页";
+    $("slider").value = state.page + 1;
+    $("progressText").textContent = Math.round(((state.page + 1) / total) * 100) + "%";
+    $("prevBtn").disabled = state.page === 0;
+    $("nextBtn").disabled = state.page >= state.chunks.length - 1;
+    markActiveBookmark();
+  } else {
+    pageEl.textContent = state.text;
+    syncScrollInfo();
+  }
+  persistPos();
+}
+
+function syncScrollInfo() {
+  const total = scrollPages();
+  const cur = Math.min(Math.floor(pageEl.scrollTop / pageEl.clientHeight) + 1, total);
+  $("pageInfo").textContent = cur + " / " + total + " 屏";
+  $("slider").max = total;
+  $("slider").value = cur;
+  $("progressText").textContent = Math.round((cur / total) * 100) + "%";
+  $("prevBtn").disabled = cur <= 1;
+  $("nextBtn").disabled = cur >= total;
+}
+function scrollPages(){ return Math.max(1, Math.ceil(pageEl.scrollHeight / pageEl.clientHeight)); }
+
+/* ---------- 翻页 ---------- */
+let animLock = 0;
+function goto(p, animate = true) {
+  if (state.mode === "scroll") {
+    const total = scrollPages();
+    p = Math.max(1, Math.min(p + 1, total));
+    pageEl.scrollTo({ top: (p - 1) * pageEl.clientHeight, behavior: "smooth" });
+    return;
+  }
+  p = Math.max(0, Math.min(p, (state.chunks.length || 1) - 1));
+  if (p === state.page && pageEl.textContent === (state.chunks[p] || "")) { render(); return; }
+  const dir = p > state.page ? 1 : -1;
+  state.page = p;
+  if (animate && !animLock && document.visibilityState === "visible") {
+    animLock = requestAnimationFrame(() => { animLock = 0; });
+    pageEl.classList.remove("out-next","out-prev","in-next","in-prev");
+    void pageEl.offsetWidth; // 重启动画
+    pageEl.classList.add(dir > 0 ? "out-next" : "out-prev");
+    setTimeout(() => {
+      render();
+      pageEl.classList.remove("out-next","out-prev");
+      pageEl.classList.add(dir > 0 ? "in-next" : "in-prev");
+      setTimeout(() => pageEl.classList.remove("in-next","in-prev"), 240);
+    }, 200);
+  } else {
+    render();
+  }
+}
+function next(){ goto(state.page + 1); }
+function prev(){ goto(state.page - 1); }
+
+/* ---------- 偏好与位置记忆 ---------- */
+function savePrefs() {
+  localStorage.setItem("reader:prefs", JSON.stringify({
+    fontSize: state.fontSize, lineHeight: state.lineHeight,
+    theme: state.theme, mode: state.mode,
+  }));
+  updateAutoPosition();
+}
+function persistPos(){ savePrefs(); }
+function loadPrefs() {
+  try {
+    const p = JSON.parse(localStorage.getItem("reader:prefs") || "{}");
+    if (p.fontSize) state.fontSize = p.fontSize;
+    if (p.lineHeight) state.lineHeight = p.lineHeight;
+    if (p.theme) setTheme(p.theme);
+    if (p.mode) setMode(p.mode);
+  } catch {}
+}
+
+function toast(msg) {
+  const t = $("toast") || (() => { const d = document.createElement("div"); d.id = "toast"; document.body.appendChild(d); return d; })();
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2500);
+}
+
+/* ---------- 主题 / 模式 ---------- */
+function setTheme(name) {
+  state.theme = name;
+  document.body.classList.remove("theme-green", "theme-dark");
+  if (name === "green") document.body.classList.add("theme-green");
+  if (name === "dark")  document.body.classList.add("theme-dark");
+  savePrefs();
+}
+function setMode(mode) {
+  if (state.mode === mode) return;
+  let screen = null;
+  if (state.mode === "scroll" && pageEl.clientHeight) {
+    screen = pageEl.scrollTop / pageEl.clientHeight;
+  }
+  state.mode = mode;
+  document.body.classList.toggle("scroll-mode", mode === "scroll");
+  $("modeBtn").textContent = mode === "scroll" ? "翻页模式" : "滚动模式";
+  if (!state.text) return;
+  if (mode === "scroll") {
+    pageEl.textContent = state.text;
+    const target = screen !== null ? screen : state.page;
+    $("slider").max = scrollPages();
+    requestAnimationFrame(() => {
+      pageEl.scrollTo({ top: Math.round(target * pageEl.clientHeight) });
+      syncScrollInfo();
+    });
+  } else {
+    rebuild(false, (screen || 0) / Math.max(1, state.chunks.length || 1));
+  }
+  savePrefs();
+}
+
+function applyTypographyChange() {
+  if (state.mode === "scroll") {
+    const denom = Math.max(1, pageEl.scrollHeight - pageEl.clientHeight);
+    const ratio = pageEl.scrollTop / denom;
+    requestAnimationFrame(() => {
+      const d = Math.max(1, pageEl.scrollHeight - pageEl.clientHeight);
+      pageEl.scrollTop = Math.round(ratio * d);
+      syncScrollInfo();
+      savePrefs();
+    });
+  } else {
+    rebuild(true);
+  }
+}
+
+/* ---------- 书签 ---------- */
+function ensureChunks(){
+  if (!state.chunks.length && state.text) {
+    const m = measureEl();
+    m.style.fontSize = state.fontSize + "px";
+    m.style.lineHeight = state.lineHeight;
+    document.body.appendChild(m);
+    state.chunks = chunkText(state.text, m, 0, state.fontSize * state.lineHeight, state.maxChunk);
+    document.body.removeChild(m);
+  }
+}
+function bmStoreKey(){ return "bm:" + (state.fileKey || hash(state.fileName + ":" + state.text.length)); }
+function bookmarksStore(){
+  if (!state.fileName) return { list: [], auto: null };
+  try {
+    const o = JSON.parse(localStorage.getItem(bmStoreKey()) || "{}");
+    if (!Array.isArray(o.list)) o.list = [];
+    return o;
+  } catch { return { list: [], auto: null }; }
+}
+function writeBookmarks(){
+  if (!state.fileName) return;
+  const o = bookmarksStore();
+  o.list = state.bookmarks;
+  localStorage.setItem(bmStoreKey(), JSON.stringify(o));
+  updateBmCount();
+}
+function loadBookmarks(){
+  const o = bookmarksStore();
+  state.bookmarks = o.list.filter(b => Number.isFinite(b.offset));
+  updateBmCount();
+  renderBookmarkPanel();
+}
+function updateBmCount(){ $("bmCount").textContent = state.bookmarks.length ? " " + state.bookmarks.length : ""; }
+
+function currentOffset(){
+  if (!state.text) return 0;
+  ensureChunks();                       // 用当前排版的分页结果把滚动位置换算成字符偏移
+  const lineH = state.fontSize * state.lineHeight;
+  const totalLines = (state.mode === "scroll" ? pageEl.scrollTop : 0) / lineH;
+  const page = state.mode === "scroll"
+    ? Math.min(Math.floor(pageEl.scrollTop / Math.max(1, pageEl.clientHeight)), state.chunks.length - 1)
+    : state.page;
+  const chunk = state.chunks[page] || "";
+  const start = state.text.indexOf(chunk);
+  if (start < 0) return 0;
+  const linesInto = state.mode === "scroll" ? totalLines - page * (pageEl.clientHeight / lineH) : 0;
+  let cut = chunk.length;
+  if (linesInto > 0) {
+    const parts = chunk.split("\n"); let acc = 0;
+    for (let i = 0; i < parts.length; i++) {
+      if (acc >= linesInto) { cut = acc; break; }
+      acc += parts[i].length + 1;
+    }
+  }
+  return start + Math.max(0, Math.min(cut, chunk.length));
+}
+
+function addBookmark(label){
+  if (!state.text) { toast("请先打开一个 TXT 文件"); return; }
+  const offset = currentOffset();
+  ensureChunks();
+  const bPage = state.mode === "page" ? state.page
+      : Math.min(Math.floor(pageEl.scrollTop / Math.max(1, pageEl.clientHeight)), state.chunks.length - 1);
+  const chunk = state.chunks[bPage] || "";
+  const start = Math.max(0, state.text.indexOf(chunk));
+  const snippet = state.text.slice(offset, offset + 50).replace(/\s+/g, " ").trim();
+  state.bookmarks.push({
+    id: "b" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    label: (label || "").trim() || (snippet ? snippet.slice(0, 12) + "…" : "第 " + (bPage + 1) + " 页"),
+    offset,
+    page: bPage,
+    pageLen: chunk.length, pageStart: start,
+    created: Date.now(),
+  });
+  writeBookmarks();
+  renderBookmarkPanel();
+  toggleBookmarkPanel(true);   // 立即在面板中看到新书签
+  toast("已添加书签：" + state.bookmarks[state.bookmarks.length - 1].label);
+}
+function removeBookmark(id){
+  const i = state.bookmarks.findIndex(b => b.id === id);
+  if (i < 0) return;
+  const [b] = state.bookmarks.splice(i, 1);
+  writeBookmarks(); renderBookmarkPanel();
+  toast("已删除书签：" + b.label);
+}
+function editBookmarkLabel(id){
+  const b = state.bookmarks.find(x => x.id === id);
+  if (!b) return;
+  const v = prompt("书签名称：", b.label);
+  if (v === null) return;
+  b.label = v.trim() || b.label;
+  writeBookmarks(); renderBookmarkPanel();
+}
+function offsetToPage(offset){
+  let acc = 0;
+  for (let i = 0; i < state.chunks.length; i++) {
+    const len = state.chunks[i].length;
+    if (offset < acc + len || i === state.chunks.length - 1) return { page: i, base: acc };
+    acc += len;
+  }
+  return { page: 0, base: 0 };
+}
+function gotoBookmark(id, highlight = true){
+  if (!state.text) return;
+  const o = bookmarksStore();
+  let b = id === "auto" ? o.auto : state.bookmarks.find(x => x.id === id);
+  if (!b || !Number.isFinite(b.offset)) { toast("书签不存在"); return; }
+  const lineH = state.fontSize * state.lineHeight;
+  ensureChunks();
+  if (state.mode === "scroll") {
+    const chunk = state.chunks[b.page] || "";
+    const base = state.text.indexOf(chunk);
+    const linesInto = (base >= 0 && b.pageLen) ? (b.offset - base) / Math.max(8, avgCharsPerLine(chunk)) : 0;
+    const screens = pageEl.clientHeight / lineH;
+    const screen = b.page + Math.min(linesInto / Math.max(1, screens), 0.9);
+    pageEl.scrollTo({ top: Math.round(screen * pageEl.clientHeight), behavior: "smooth" });
+    markActiveBookmark(id);
+    if (highlight) flashBookmark(id);
+    return;
+  }
+  const { page, base } = offsetToPage(b.offset);
+  goto(page);
+  const chunk = state.chunks[page] || "";
+  const linesInto = Math.max(0, Math.min(
+    Math.floor((b.offset - base) / Math.max(2, avgCharsPerLine(chunk))),
+    chunk.split("\n").length));
+  const top = Math.max(0, linesInto * lineH - pageEl.clientHeight * 0.15);
+  requestAnimationFrame(() => pageEl.scrollTo({ top, behavior: "smooth" }));
+  markActiveBookmark(id);
+  if (highlight) flashBookmark(id, b.offset - base);
+}
+function avgCharsPerLine(chunk){
+  const lines = chunk.split("\n").filter(l => l.length);
+  if (!lines.length) return 24;
+  return Math.max(8, Math.round(lines.reduce((a, l) => a + l.length, 0) / lines.length));
+}
+function cycleBookmark(dir){
+  if (!state.bookmarks.length) { toast("还没有书签，按 B 添加"); return; }
+  ensureChunks();
+  const list = [...state.bookmarks].sort((a, b) => a.offset - b.offset);
+  const cur = list.findIndex(b => b.page >= state.page);
+  let i = dir > 0 ? (cur < 0 ? 0 : Math.min(cur + 1, list.length - 1))
+                  : (cur <= 0 ? 0 : cur - 1);
+  gotoBookmark(list[i].id);
+}
+function updateAutoPosition(){
+  if (!state.fileName || !state.text) return;
+  ensureChunks();
+  const o = bookmarksStore();
+  const page = state.mode === "scroll"
+    ? Math.min(Math.floor(pageEl.scrollTop / Math.max(1, pageEl.clientHeight)), state.chunks.length - 1)
+    : state.page;
+  const chunk = state.chunks[page] || "";
+  o.auto = {
+    id: "auto", label: "上次阅读位置", offset: currentOffset(), page,
+    pageLen: chunk.length, pageStart: Math.max(0, state.text.indexOf(chunk)),
+    created: Date.now(), auto: true,
+  };
+  localStorage.setItem(bmStoreKey(), JSON.stringify(o));
+}
+function flashBookmark(id, offInChunk){
+  if (id !== "auto" && offInChunk === undefined) {
+    const b = state.bookmarks.find(x => x.id === id);
+    const chunk = state.chunks[state.page] || "";
+    offInChunk = b ? b.offset - state.text.indexOf(chunk) : -1;
+  }
+  if (!(offInChunk >= 0) || state.mode !== "page") return;
+  const chunk = state.chunks[state.page] || "";
+  const esc = s => s.replace(/[&<>]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;" }[c]));
+  const before = chunk.slice(0, offInChunk);
+  const target = chunk.slice(offInChunk, offInChunk + 60);
+  const after = chunk.slice(offInChunk + 60);
+  pageEl.innerHTML = esc(before) + "<mark class=\"bm\">" + esc(target) + "</mark>" + esc(after);
+  clearTimeout(flashBookmark._t);
+  flashBookmark._t = setTimeout(() => {
+    if (pageEl.querySelector("mark.bm")) pageEl.textContent = state.chunks[state.page] || "";
+  }, 2600);
+}
+function markActiveBookmark(activeId){
+  document.querySelectorAll(".bm-item").forEach(el => {
+    const b = state.bookmarks.find(x => x.id === el.dataset.id);
+    el.classList.toggle("active", activeId ? el.dataset.id === activeId
+                  : !!(b && b.page === state.page));
+  });
+}
+function renderBookmarkPanel(){
+  const list = $("bmList");
+  list.textContent = "";
+  const auto = bookmarksStore().auto;
+  if (auto && Number.isFinite(auto.offset)) {
+    const sec = document.createElement("div");
+    sec.className = "bm-sec"; sec.textContent = "上次阅读位置";
+    const row = document.createElement("div");
+    row.className = "bm-item"; row.dataset.id = "auto";
+    row.innerHTML = "<div class=\"bm-name\">🔖 " + escapeHtml(auto.label) + "</div>" +
+      "<div class=\"bm-snippet\">" + escapeHtml(state.text.slice(auto.offset, auto.offset + 46).replace(/\s+/g, " ")) + "</div>" +
+      "<div class=\"bm-meta\"><span>第 " + (auto.page + 1) + " 页</span><span>" + fmtDate(auto.created) + "</span></div>";
+    row.addEventListener("click", () => gotoBookmark("auto"));
+    list.append(sec, row);
+  }
+  const sec2 = document.createElement("div");
+  sec2.className = "bm-sec";
+  const t = document.createElement("span"); t.textContent = "我的书签（" + state.bookmarks.length + "）";
+  sec2.append(t);
+  if (state.bookmarks.length) {
+    const clear = document.createElement("button");
+    clear.textContent = "清空"; clear.dataset.act = "clear";
+    sec2.append(clear);
+  }
+  list.append(sec2);
+  if (!state.bookmarks.length) {
+    const e = document.createElement("div");
+    e.className = "bm-empty";
+    e.textContent = "还没有书签。读到重要位置时按 B，或点上方「添加」。书签按「文件名＋内容长度」保存，重新打开同一个文件会自动恢复。";
+    list.append(e);
+    updateBmCount(); markActiveBookmark(); return;
+  }
+  [...state.bookmarks].sort((a, b) => a.offset - b.offset).forEach(b => {
+    const row = document.createElement("div");
+    row.className = "bm-item"; row.dataset.id = b.id;
+    row.innerHTML =
+      "<div class=\"bm-name\">🔖 " + escapeHtml(b.label) + "</div>" +
+      "<div class=\"bm-snippet\">" + escapeHtml(state.text.slice(b.offset, b.offset + 46).replace(/\s+/g, " ")) + "</div>" +
+      "<div class=\"bm-meta\"><span>第 " + (b.page + 1) + " 页</span><span>" + fmtDate(b.created) + "</span>" +
+      "<span class=\"bm-acts\"><button data-act=\"edit\">改名</button><button data-act=\"del\">删除</button></span></div>";
+    row.addEventListener("click", e => {
+      const act = e.target.dataset && e.target.dataset.act;
+      if (act === "del") { e.stopPropagation(); removeBookmark(b.id); return; }
+      if (act === "edit") { e.stopPropagation(); editBookmarkLabel(b.id); return; }
+      gotoBookmark(b.id);
+    });
+    list.append(row);
+  });
+  const clearBtn = list.querySelector('[data-act="clear"]');
+  if (clearBtn) clearBtn.addEventListener("click", () => {
+    if (!state.bookmarks.length) return;
+    if (!confirm("删除全部 " + state.bookmarks.length + " 个书签？")) return;
+    state.bookmarks = []; writeBookmarks(); renderBookmarkPanel();
+  });
+  markActiveBookmark();
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+}
+function fmtDate(ts){
+  if (!ts) return "";
+  const d = new Date(ts);
+  return (d.getMonth() + 1) + "/" + d.getDate() + " " +
+    String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+function toggleBookmarkPanel(open){
+  const on = open === undefined ? !document.body.classList.contains("bm-open") : open;
+  document.body.classList.toggle("bm-open", on);
+  if (on) renderBookmarkPanel();
+}
+
+/* ---------- 事件绑定 ---------- */
+$("fileInput").addEventListener("change", e => openFile(e.target.files[0]));
+$("fileInput2").addEventListener("change", e => openFile(e.target.files[0]));
+$("prevBtn").addEventListener("click", prev);
+$("nextBtn").addEventListener("click", next);
+$("fontMinus").addEventListener("click", () => { state.fontSize = Math.max(12, state.fontSize - 2); applyTypographyChange(); });
+$("fontPlus").addEventListener("click",  () => { state.fontSize = Math.min(40, state.fontSize + 2); applyTypographyChange(); });
+$("lineHeight").addEventListener("change", e => { state.lineHeight = parseFloat(e.target.value); applyTypographyChange(); });
+document.querySelectorAll("[data-theme]").forEach(b =>
+  b.addEventListener("click", () => setTheme(b.dataset.theme)));
+$("slider").addEventListener("input", e => {
+  if (state.mode === "scroll") pageEl.scrollTo({ top: (e.target.value - 1) * pageEl.clientHeight });
+  else goto(parseInt(e.target.value, 10) - 1, false);
+});
+$("modeBtn").addEventListener("click", () => setMode(state.mode === "page" ? "scroll" : "page"));
+
+$("bmBtn").addEventListener("click", () => toggleBookmarkPanel());
+$("bmClose").addEventListener("click", () => toggleBookmarkPanel(false));
+$("bmAdd").addEventListener("click", () => {
+  addBookmark($("bmLabel").value);
+  $("bmLabel").value = "";
+  $("bmAdd").blur();
+});
+$("bmLabel").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); $("bmAdd").click(); }
+});
+
+pageEl.addEventListener("scroll", () => { if (state.mode === "scroll") syncScrollInfo(); }, { passive: true });
+
+$("zoneL").addEventListener("click", prev);
+$("zoneR").addEventListener("click", next);
+
+window.addEventListener("keydown", e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.matches("input,select,textarea")) return;
+  const inBmPanel = e.target.closest && e.target.closest("#bmPanel");
+  const onHeaderBtn = e.target.tagName === "BUTTON" && !inBmPanel;
+  switch (e.key) {
+    case "ArrowRight": case "PageDown":
+      e.preventDefault(); next(); break;
+    case "ArrowLeft": case "PageUp": case "Backspace":
+      e.preventDefault(); prev(); break;
+    case " ": case "Enter":
+      if (onHeaderBtn) break;               // 焦点在顶部按钮上时不吞掉按钮激活
+      e.preventDefault(); next(); break;
+    case "ArrowUp": if (state.mode === "scroll") return; e.preventDefault(); prev(); break;
+    case "ArrowDown": if (state.mode === "scroll") return; e.preventDefault(); next(); break;
+    case "Home": e.preventDefault(); goto(0); break;
+    case "End":  e.preventDefault(); goto((state.chunks.length || 1) - 1); break;
+    case "b": case "B":
+      e.preventDefault();
+      addBookmark(document.body.classList.contains("bm-open") ? $("bmLabel").value : "");
+      break;
+    case "m": case "M": e.preventDefault(); toggleBookmarkPanel(); break;
+    case "j": case "J": e.preventDefault(); cycleBookmark(1); break;
+    case "k": case "K": e.preventDefault(); cycleBookmark(-1); break;
+    case "Escape": if (document.body.classList.contains("bm-open")) toggleBookmarkPanel(false); break;
+  }
+});
+
+/* 触摸滑动翻页 */
+let touchX = null, touchY = null;
+$("stage").addEventListener("touchstart", e => {
+  touchX = e.touches[0].clientX; touchY = e.touches[0].clientY;
+}, { passive: true });
+$("stage").addEventListener("touchend", e => {
+  if (touchX === null || state.mode === "scroll") return;
+  const dx = e.changedTouches[0].clientX - touchX;
+  const dy = e.changedTouches[0].clientY - touchY;
+  if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) (dx < 0 ? next : prev)();
+  touchX = touchY = null;
+}, { passive: true });
+
+/* 拖放打开 */
+window.addEventListener("dragover", e => { e.preventDefault(); document.body.classList.add("dragover"); });
+window.addEventListener("dragleave", e => { if (!e.relatedTarget) document.body.classList.remove("dragover"); });
+window.addEventListener("drop", e => {
+  e.preventDefault(); document.body.classList.remove("dragover");
+  const f = [...e.dataTransfer.files].find(f => /\.(txt|md|log)$/i.test(f.name)) || e.dataTransfer.files[0];
+  openFile(f);
+});
+
+/* 窗口尺寸变化 → 重新分页（防抖） */
+let resizeT;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeT);
+  resizeT = setTimeout(() => { if (state.mode === "page") rebuild(true); else syncScrollInfo(); }, 250);
+});
+
+loadPrefs();
+</script>
+</body>
+</html>
