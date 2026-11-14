@@ -178,7 +178,6 @@
             border-radius: 0 0 8px 8px;
             border-top: 1px solid #eee;
             gap: 15px;
-            flex-wrap: wrap;
         }
 
         .settings-item {
@@ -202,80 +201,6 @@
 
         .settings-item input[type="range"] {
             width: 85px;
-        }
-
-        /* 书签按钮样式 */
-        .bookmark-btn {
-            padding: 5px 10px;
-            background: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 16px;
-            transition: all 0.3s;
-        }
-
-        .bookmark-btn:hover {
-            background: #45a049;
-        }
-
-        .bookmark-btn:active {
-            transform: scale(0.95);
-        }
-
-        .bookmark-btn.active {
-            background: #2196F3;
-        }
-
-        .bookmark-list {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 5px 10px;
-            background: #fff;
-            border-radius: 4px;
-            border: 1px solid #ddd;
-        }
-
-        .bookmark-label {
-            font-size: 11px;
-            color: #555;
-        }
-
-        .bookmark-items {
-            display: flex;
-            gap: 5px;
-            flex-wrap: wrap;
-        }
-
-        .bookmark-item {
-            padding: 3px 8px;
-            background: #e3f2fd;
-            border-radius: 3px;
-            font-size: 11px;
-            color: #1976d2;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-
-        .bookmark-item:hover {
-            background: #bbdefb;
-        }
-
-        .bookmark-item.current {
-            background: #1976d2;
-            color: white;
-        }
-
-        .bookmark-item.delete {
-            margin-left: 3px;
-            color: #f44336;
-            cursor: pointer;
-        }
-
-        .bookmark-item.delete:hover {
-            color: #d32f2f;
         }
 
         .settings-item .value {
@@ -469,13 +394,6 @@
                     <option value="reader-mode">专注模式</option>
                 </select>
             </div>
-            <div class="bookmark-section">
-                <button class="bookmark-btn" id="bookmarkBtn" title="添加书签 (Ctrl+B)">📑</button>
-                <div class="bookmark-list" id="bookmarkList" style="display:none;">
-                    <span class="bookmark-label">书签:</span>
-                    <div class="bookmark-items" id="bookmarkItems"></div>
-                </div>
-            </div>
         </div>
     </div>
 
@@ -492,11 +410,6 @@
             displayMode: 'normal'
         };
 
-        // 书签相关变量
-        let bookmarks = [];
-        let currentBookmarkId = null;
-        let currentFileHash = null;
-
         // DOM 元素
         const fileInput = document.getElementById('fileInput');
         const fileName = document.getElementById('fileName');
@@ -506,9 +419,6 @@
         const pageInput = document.getElementById('pageInput');
         const totalPagesEl = document.getElementById('totalPages');
         const loading = document.getElementById('loading');
-        const bookmarkBtn = document.getElementById('bookmarkBtn');
-        const bookmarkList = document.getElementById('bookmarkList');
-        const bookmarkItems = document.getElementById('bookmarkItems');
 
         // 字体大小控制
         const fontSizeInput = document.getElementById('fontSize');
@@ -692,23 +602,6 @@
         document.addEventListener('keydown', (e) => {
             if (e.target.tagName === 'INPUT') return;
 
-            // Ctrl+B 添加书签
-            if (e.ctrlKey && e.key === 'b') {
-                e.preventDefault();
-                addBookmark();
-                return;
-            }
-
-            // Ctrl+数字键跳转到书签
-            if (e.ctrlKey && e.key >= '1' && e.key <= '9') {
-                e.preventDefault();
-                const bookmarkIndex = parseInt(e.key) - 1;
-                if (bookmarkIndex < bookmarks.length) {
-                    jumpToBookmark(bookmarkIndex);
-                }
-                return;
-            }
-
             if (e.key === 'ArrowLeft') {
                 if (currentPage > 1) {
                     renderPage(currentPage - 1);
@@ -725,127 +618,6 @@
                 if (totalPages > 1 && currentPage !== totalPages) {
                     renderPage(totalPages);
                 }
-            }
-        });
-
-        // 书签功能
-        bookmarkBtn.addEventListener('click', addBookmark);
-
-        // 添加书签
-        function addBookmark() {
-            // 检查是否是新文件
-            if (currentFileHash !== getHash(currentFile)) {
-                loadBookmarks();
-                bookmarks = [];
-                bookmarks.push({
-                    id: Date.now(),
-                    title: '书签 ' + (bookmarks.length + 1),
-                    page: currentPage,
-                    timestamp: Date.now()
-                });
-                saveBookmarks();
-                updateBookmarkUI();
-            } else {
-                // 同一文件，更新当前书签
-                if (currentBookmarkId) {
-                    const index = bookmarks.findIndex(b => b.id === currentBookmarkId);
-                    if (index !== -1) {
-                        bookmarks[index].page = currentPage;
-                        bookmarks[index].timestamp = Date.now();
-                        saveBookmarks();
-                        updateBookmarkUI();
-                    }
-                } else {
-                    // 没有当前书签，添加新书签
-                    bookmarks.push({
-                        id: Date.now(),
-                        title: '书签 ' + (bookmarks.length + 1),
-                        page: currentPage,
-                        timestamp: Date.now()
-                    });
-                    saveBookmarks();
-                    updateBookmarkUI();
-                }
-            }
-        }
-
-        // 更新书签列表显示
-        function updateBookmarkUI() {
-            // 更新按钮状态
-            const activeBookmarks = bookmarks.filter(b => b.page === currentPage && currentFileHash === getHash(currentFile));
-            bookmarkBtn.classList.toggle('active', activeBookmarks.length > 0);
-
-            // 更新列表显示
-            bookmarkList.innerHTML = '<span class="bookmark-label">书签:</span><div class="bookmark-items" id="bookmarkItems"></div>';
-            bookmarkItems.innerHTML = bookmarks.map((bookmark, index) => `
-                <div class="bookmark-item ${currentPage === bookmark.page && currentFileHash === getHash(currentFile) ? 'current' : ''}"
-                     data-index="${index}">
-                    <span>${bookmark.title} (第 ${bookmark.page}页)</span>
-                    <span class="delete" title="删除">×</span>
-                </div>
-            `).join('');
-        }
-
-        // 删除书签
-        document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('delete')) {
-                const index = parseInt(e.target.parentElement.dataset.index);
-                bookmarks.splice(index, 1);
-                saveBookmarks();
-                updateBookmarkUI();
-            }
-        });
-
-        // 跳转到书签
-        function jumpToBookmark(index) {
-            if (index < 0 || index >= bookmarks.length) return;
-            const bookmark = bookmarks[index];
-            if (bookmark.page >= 1 && bookmark.page <= totalPages) {
-                renderPage(bookmark.page);
-            }
-        }
-
-        // 保存书签到 localStorage
-        function saveBookmarks() {
-            try {
-                localStorage.setItem('txtReaderBookmarks', JSON.stringify(bookmarks));
-            } catch (e) {
-                console.error('保存书签失败:', e);
-            }
-        }
-
-        // 从 localStorage 加载书签
-        function loadBookmarks() {
-            try {
-                const saved = localStorage.getItem('txtReaderBookmarks');
-                if (saved) {
-                    bookmarks = JSON.parse(saved);
-                    // 过滤掉已加载文件之外的书签
-                    bookmarks = bookmarks.filter(b => b.title);
-                }
-            } catch (e) {
-                console.error('加载书签失败:', e);
-                bookmarks = [];
-            }
-        }
-
-        // 获取文件内容的哈希值
-        function getHash(content) {
-            let hash = 0;
-            const chars = content.substring(0, 1000); // 只取前 1000 个字符
-            for (let i = 0; i < chars.length; i++) {
-                const char = chars.charCodeAt(i);
-                hash = ((hash << 5) - hash) + char;
-                hash = hash & hash;
-            }
-            return hash.toString(16);
-        }
-
-        // 监听页面变化，更新当前书签
-        contentArea.addEventListener('scroll', () => {
-            // 如果滚动超过 50%，自动更新书签
-            if (contentArea.scrollTop > contentArea.scrollHeight * 0.5) {
-                updateBookmarkUI();
             }
         });
 
