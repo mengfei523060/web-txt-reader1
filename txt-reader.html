@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TXT 阅读器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Georgia', 'Times New Roman', serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            min-width: 600px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 20px;
+            background: #f7f7f7;
+            border-radius: 8px 8px 0 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .top-bar h1 {
+            font-size: 16px;
+            color: #333;
+        }
+
+        .top-bar .file-input-wrapper {
+            display: flex;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            color: #333;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+
+        .file-input-wrapper input[type="file"] {
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            cursor: pointer;
+            width: 100%;
+            height: 100%;
+        }
+
+        .file-input-wrapper label {
+            display: inline-block;
+            padding: 8px 16px;
+            background: #4CAF50;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .file-input-wrapper label:hover {
+            background: #45a049;
+        }
+
+        .file-name {
+            margin-left: 10px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .content-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 15px 0;
+        }
+
+        .content-area {
+            flex: 1;
+            min-height: 0;
+            line-height: 1.8;
+            font-size: 16px;
+            color: #333;
+            overflow-y: auto;
+            overflow-x: hidden;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+
+        .content-area:empty::before {
+            content: "请选择一个 TXT 文件开始阅读...";
+            color: #999;
+            text-align: center;
+            padding: 30px;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            background: #f7f7f7;
+            border-radius: 0 0 8px 8px;
+            border-top: 1px solid #eee;
+            gap: 10px;
+        }
+
+        .page-btn {
+            padding: 10px 20px;
+            background: #f0f0f0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .page-btn:hover:not(:disabled) {
+            background: #e0e0e0;
+        }
+
+        .page-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .page-info {
+            font-size: 14px;
+            color: #666;
+            margin: 0 15px;
+        }
+
+        .page-input {
+            width: 60px;
+            padding: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        /* 设置项样式 - 在一行显示 */
+        .settings-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            background: #f7f7f7;
+            border-radius: 0 0 8px 8px;
+            border-top: 1px solid #eee;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .settings-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .settings-item label {
+            font-size: 12px;
+            color: #555;
+        }
+
+        .settings-item select,
+        .settings-item input[type="range"] {
+            padding: 3px 6px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            font-size: 11px;
+        }
+
+        .settings-item input[type="range"] {
+            width: 85px;
+        }
+
+        /* 书签按钮样式 */
+        .bookmark-btn {
+            padding: 5px 10px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+
+        .bookmark-btn:hover {
+            background: #45a049;
+        }
+
+        .bookmark-btn:active {
+            transform: scale(0.95);
+        }
+
+        .bookmark-btn.active {
+            background: #2196F3;
+        }
+
+        .bookmark-list {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 5px 10px;
+            background: #fff;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+
+        .bookmark-label {
+            font-size: 11px;
+            color: #555;
+        }
+
+        .bookmark-items {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+
+        .bookmark-item {
+            padding: 3px 8px;
+            background: #e3f2fd;
+            border-radius: 3px;
+            font-size: 11px;
+            color: #1976d2;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .bookmark-item:hover {
+            background: #bbdefb;
+        }
+
+        .bookmark-item.current {
+            background: #1976d2;
+            color: white;
+        }
+
+        .bookmark-item.delete {
+            margin-left: 3px;
+            color: #f44336;
+            cursor: pointer;
+        }
+
+        .bookmark-item.delete:hover {
+            color: #d32f2f;
+        }
+
+        .settings-item .value {
+            font-size: 11px;
+            color: #999;
+        }
+
+        .settings h3 {
+            font-size: 14px;
+            margin-bottom: 10px;
+            color: #555;
+        }
+
+        .settings-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .settings-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .settings-row label {
+            font-size: 14px;
+            color: #555;
+        }
+
+        .settings-row select,
+        .settings-row input[type="range"] {
+            padding: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .settings-row input[type="range"] {
+            width: 100px;
+        }
+
+        .settings-row .value {
+            font-size: 12px;
+            color: #999;
+            margin-left: 10px;
+        }
+
+        /* Loading overlay */
+        .loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .loading.show {
+            display: flex;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4CAF50;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Scrollbar styling */
+        .content-area::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .content-area::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        .content-area::-webkit-scrollbar-thumb {
+            background: #ccc;
+            border-radius: 4px;
+        }
+
+        .content-area::-webkit-scrollbar-thumb:hover {
+            background: #999;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .container {
+                padding: 10px;
+                height: 95vh;
+            }
+
+            .top-bar {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            .top-bar h1 {
+                font-size: 14px;
+            }
+
+            .top-bar .file-input-wrapper label {
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+
+            .top-bar .file-name {
+                font-size: 12px;
+            }
+
+            .controls {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .settings-bar {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .settings-item {
+                flex: 1;
+            }
+
+            .settings-item input[type="range"] {
+                width: 70px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">
+        <div class="loading-spinner"></div>
+    </div>
+
+    <div class="container">
+        <div class="top-bar">
+            <h1>📖 TXT 阅读器</h1>
+            <div class="file-input-wrapper">
+                <input type="file" id="fileInput" accept=".txt,.text">
+                <label for="fileInput">📁 选择文件</label>
+                <span class="file-name" id="fileName"></span>
+            </div>
+        </div>
+
+        <div class="content-wrapper">
+            <div class="content-area" id="contentArea"></div>
+        </div>
+
+        <div class="controls">
+            <button class="page-btn" id="prevBtn" disabled>上一页</button>
+            <div class="page-info">
+                第 <input type="number" class="page-input" id="pageInput" min="1" value="1"> / <span id="totalPages">0</span>
+            </div>
+            <button class="page-btn" id="nextBtn" disabled>下一页</button>
+        </div>
+
+        <div class="settings-bar">
+            <div class="settings-item">
+                <label>字体大小:</label>
+                <input type="range" id="fontSize" min="12" max="24" value="16">
+                <span class="value" id="fontSizeValue">16px</span>
+            </div>
+            <div class="settings-item">
+                <label>行高:</label>
+                <input type="range" id="lineHeight" min="1" max="2.5" step="0.1" value="1.8">
+                <span class="value" id="lineHeightValue">1.8</span>
+            </div>
+            <div class="settings-item">
+                <label>最大宽度:</label>
+                <input type="range" id="maxWidth" min="600" max="1000" step="50" value="800">
+                <span class="value" id="maxWidthValue">800px</span>
+            </div>
+            <div class="settings-item">
+                <label>显示模式:</label>
+                <select id="displayMode">
+                    <option value="normal">正常阅读</option>
+                    <option value="print">适合打印</option>
+                    <option value="reader-mode">专注模式</option>
+                </select>
+            </div>
+            <div class="bookmark-section">
+                <button class="bookmark-btn" id="bookmarkBtn" title="添加书签 (Ctrl+B)">📑</button>
+                <div class="bookmark-list" id="bookmarkList" style="display:none;">
+                    <span class="bookmark-label">书签:</span>
+                    <div class="bookmark-items" id="bookmarkItems"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let currentFile = null;
+        let currentPage = 1;
+        let totalPages = 0;
+        let wordPerPage = 250;
+        let settings = {
+            fontSize: 16,
+            lineHeight: 1.8,
+            maxWidth: 800,
+            displayMode: 'normal'
+        };
+
+        // 书签相关变量
+        let bookmarks = [];
+        let currentBookmarkId = null;
+        let currentFileHash = null;
+
+        // DOM 元素
+        const fileInput = document.getElementById('fileInput');
+        const fileName = document.getElementById('fileName');
+        const contentArea = document.getElementById('contentArea');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const pageInput = document.getElementById('pageInput');
+        const totalPagesEl = document.getElementById('totalPages');
+        const loading = document.getElementById('loading');
+        const bookmarkBtn = document.getElementById('bookmarkBtn');
+        const bookmarkList = document.getElementById('bookmarkList');
+        const bookmarkItems = document.getElementById('bookmarkItems');
+
+        // 字体大小控制
+        const fontSizeInput = document.getElementById('fontSize');
+        const fontSizeValue = document.getElementById('fontSizeValue');
+        const lineHeightInput = document.getElementById('lineHeight');
+        const lineHeightValue = document.getElementById('lineHeightValue');
+        const maxWidthInput = document.getElementById('maxWidth');
+        const maxWidthValue = document.getElementById('maxWidthValue');
+        const displayMode = document.getElementById('displayMode');
+
+        // 加载文件
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // 显示文件名
+            fileName.textContent = file.name;
+
+            // 显示加载状态
+            loading.classList.add('show');
+
+            try {
+                // 读取文件内容
+                const content = await readFileText(file);
+                if (!content.trim()) {
+                    alert('文件为空或格式不正确');
+                    return;
+                }
+
+                currentFile = content;
+                parseContent();
+                loading.classList.remove('show');
+            } catch (error) {
+                console.error('读取文件失败:', error);
+                alert('读取文件失败: ' + error.message);
+                loading.classList.remove('show');
+            }
+        });
+
+        // 读取文件文本
+        function readFileText(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = (e) => reject(new Error('读取文件失败'));
+                reader.readAsText(file, 'UTF-8');
+            });
+        }
+
+        // 解析内容并分页
+        function parseContent() {
+            // 按换行符分割成行
+            const lines = currentFile.split('\n');
+            const words = currentFile.split(/(\s+)/);
+
+            totalPages = Math.ceil(words.length / wordPerPage) || 1;
+            currentPage = 1;
+            pageInput.value = currentPage;
+
+            updateButtons();
+            renderPage(currentPage);
+        }
+
+        // 渲染指定页面
+        function renderPage(page) {
+            if (page < 1 || page > totalPages) return;
+
+            currentPage = page;
+            pageInput.value = currentPage;
+
+            // 计算起始和结束位置
+            const start = (page - 1) * wordPerPage;
+            const end = Math.min(start + wordPerPage, currentFile.length);
+            const text = currentFile.substring(start, end);
+
+            // 应用设置
+            applySettings();
+
+            // 设置内容
+            if (text.trim()) {
+                contentArea.textContent = text;
+                contentArea.classList.remove('empty');
+            } else {
+                contentArea.textContent = '文件已读完';
+                contentArea.classList.add('empty');
+            }
+
+            // 自动滚动到顶部
+            contentArea.scrollTop = 0;
+        }
+
+        // 应用设置
+        function applySettings() {
+            // 字体大小
+            contentArea.style.fontSize = settings.fontSize + 'px';
+
+            // 行高
+            contentArea.style.lineHeight = settings.lineHeight;
+
+            // 最大宽度
+            contentArea.style.maxWidth = settings.maxWidth + 'px';
+
+            // 显示模式
+            switch (settings.displayMode) {
+                case 'print':
+                    contentArea.style.fontSize = '14px';
+                    contentArea.style.lineHeight = '2';
+                    contentArea.style.color = '#000';
+                    break;
+                case 'reader-mode':
+                    contentArea.style.fontSize = '18px';
+                    contentArea.style.lineHeight = '2.2';
+                    contentArea.style.color = '#1a1a1a';
+                    break;
+                default:
+                    contentArea.style.fontSize = settings.fontSize + 'px';
+                    contentArea.style.lineHeight = settings.lineHeight;
+                    contentArea.style.color = '#333';
+            }
+        }
+
+        // 更新按钮状态
+        function updateButtons() {
+            prevBtn.disabled = currentPage <= 1;
+            nextBtn.disabled = currentPage >= totalPages;
+            pageInput.disabled = currentPage <= 1 && currentPage >= totalPages;
+            pageInput.value = currentPage;
+            totalPagesEl.textContent = totalPages;
+        }
+
+        // 上一页
+        prevBtn.addEventListener('click', () => {
+            if (currentPage > 1) {
+                renderPage(currentPage - 1);
+            }
+        });
+
+        // 下一页
+        nextBtn.addEventListener('click', () => {
+            if (currentPage < totalPages) {
+                renderPage(currentPage + 1);
+            }
+        });
+
+        // 跳转到指定页
+        pageInput.addEventListener('change', () => {
+            let page = parseInt(pageInput.value);
+            if (page < 1) page = 1;
+            if (page > totalPages) page = totalPages;
+            renderPage(page);
+        });
+
+        // 字体大小
+        fontSizeInput.addEventListener('input', (e) => {
+            settings.fontSize = parseInt(e.target.value);
+            fontSizeValue.textContent = settings.fontSize + 'px';
+            applySettings();
+        });
+
+        // 行高
+        lineHeightInput.addEventListener('input', (e) => {
+            settings.lineHeight = parseFloat(e.target.value);
+            lineHeightValue.textContent = settings.lineHeight;
+            applySettings();
+        });
+
+        // 最大宽度
+        maxWidthInput.addEventListener('input', (e) => {
+            settings.maxWidth = parseInt(e.target.value);
+            maxWidthValue.textContent = settings.maxWidth + 'px';
+            applySettings();
+        });
+
+        // 显示模式
+        displayMode.addEventListener('change', (e) => {
+            settings.displayMode = e.target.value;
+            applySettings();
+        });
+
+        // 快捷键支持
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT') return;
+
+            // Ctrl+B 添加书签
+            if (e.ctrlKey && e.key === 'b') {
+                e.preventDefault();
+                addBookmark();
+                return;
+            }
+
+            // Ctrl+数字键跳转到书签
+            if (e.ctrlKey && e.key >= '1' && e.key <= '9') {
+                e.preventDefault();
+                const bookmarkIndex = parseInt(e.key) - 1;
+                if (bookmarkIndex < bookmarks.length) {
+                    jumpToBookmark(bookmarkIndex);
+                }
+                return;
+            }
+
+            if (e.key === 'ArrowLeft') {
+                if (currentPage > 1) {
+                    renderPage(currentPage - 1);
+                }
+            } else if (e.key === 'ArrowRight') {
+                if (currentPage < totalPages) {
+                    renderPage(currentPage + 1);
+                }
+            } else if (e.key === 'Home') {
+                if (totalPages > 1 && currentPage !== 1) {
+                    renderPage(1);
+                }
+            } else if (e.key === 'End') {
+                if (totalPages > 1 && currentPage !== totalPages) {
+                    renderPage(totalPages);
+                }
+            }
+        });
+
+        // 书签功能
+        bookmarkBtn.addEventListener('click', addBookmark);
+
+        // 添加书签
+        function addBookmark() {
+            // 检查是否是新文件
+            if (currentFileHash !== getHash(currentFile)) {
+                loadBookmarks();
+                bookmarks = [];
+                bookmarks.push({
+                    id: Date.now(),
+                    title: '书签 ' + (bookmarks.length + 1),
+                    page: currentPage,
+                    timestamp: Date.now()
+                });
+                saveBookmarks();
+                updateBookmarkUI();
+            } else {
+                // 同一文件，更新当前书签
+                if (currentBookmarkId) {
+                    const index = bookmarks.findIndex(b => b.id === currentBookmarkId);
+                    if (index !== -1) {
+                        bookmarks[index].page = currentPage;
+                        bookmarks[index].timestamp = Date.now();
+                        saveBookmarks();
+                        updateBookmarkUI();
+                    }
+                } else {
+                    // 没有当前书签，添加新书签
+                    bookmarks.push({
+                        id: Date.now(),
+                        title: '书签 ' + (bookmarks.length + 1),
+                        page: currentPage,
+                        timestamp: Date.now()
+                    });
+                    saveBookmarks();
+                    updateBookmarkUI();
+                }
+            }
+        }
+
+        // 更新书签列表显示
+        function updateBookmarkUI() {
+            // 更新按钮状态
+            const activeBookmarks = bookmarks.filter(b => b.page === currentPage && currentFileHash === getHash(currentFile));
+            bookmarkBtn.classList.toggle('active', activeBookmarks.length > 0);
+
+            // 更新列表显示
+            bookmarkList.innerHTML = '<span class="bookmark-label">书签:</span><div class="bookmark-items" id="bookmarkItems"></div>';
+            bookmarkItems.innerHTML = bookmarks.map((bookmark, index) => `
+                <div class="bookmark-item ${currentPage === bookmark.page && currentFileHash === getHash(currentFile) ? 'current' : ''}"
+                     data-index="${index}">
+                    <span>${bookmark.title} (第 ${bookmark.page}页)</span>
+                    <span class="delete" title="删除">×</span>
+                </div>
+            `).join('');
+        }
+
+        // 删除书签
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('delete')) {
+                const index = parseInt(e.target.parentElement.dataset.index);
+                bookmarks.splice(index, 1);
+                saveBookmarks();
+                updateBookmarkUI();
+            }
+        });
+
+        // 跳转到书签
+        function jumpToBookmark(index) {
+            if (index < 0 || index >= bookmarks.length) return;
+            const bookmark = bookmarks[index];
+            if (bookmark.page >= 1 && bookmark.page <= totalPages) {
+                renderPage(bookmark.page);
+            }
+        }
+
+        // 保存书签到 localStorage
+        function saveBookmarks() {
+            try {
+                localStorage.setItem('txtReaderBookmarks', JSON.stringify(bookmarks));
+            } catch (e) {
+                console.error('保存书签失败:', e);
+            }
+        }
+
+        // 从 localStorage 加载书签
+        function loadBookmarks() {
+            try {
+                const saved = localStorage.getItem('txtReaderBookmarks');
+                if (saved) {
+                    bookmarks = JSON.parse(saved);
+                    // 过滤掉已加载文件之外的书签
+                    bookmarks = bookmarks.filter(b => b.title);
+                }
+            } catch (e) {
+                console.error('加载书签失败:', e);
+                bookmarks = [];
+            }
+        }
+
+        // 获取文件内容的哈希值
+        function getHash(content) {
+            let hash = 0;
+            const chars = content.substring(0, 1000); // 只取前 1000 个字符
+            for (let i = 0; i < chars.length; i++) {
+                const char = chars.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash;
+            }
+            return hash.toString(16);
+        }
+
+        // 监听页面变化，更新当前书签
+        contentArea.addEventListener('scroll', () => {
+            // 如果滚动超过 50%，自动更新书签
+            if (contentArea.scrollTop > contentArea.scrollHeight * 0.5) {
+                updateBookmarkUI();
+            }
+        });
+
+        // 初始化
+        displayMode.addEventListener('change', applySettings);
+    </script>
+</body>
+</html>
